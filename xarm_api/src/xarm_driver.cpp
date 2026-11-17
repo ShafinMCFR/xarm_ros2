@@ -6,6 +6,7 @@
            Vinman <vinman.cub@gmail.com>
  ============================================================================*/
 #include "xarm_api/xarm_driver.h"
+#include "xarm_api/joint_feedback.h"
 
 #define CMD_HEARTBEAT_SEC 30 // 30s
 
@@ -40,8 +41,10 @@ namespace xarm_api
 
     XArmDriver::~XArmDriver()
     {   
-        arm->set_mode(XARM_MODE::POSE);
-        arm->disconnect();
+        if (arm != nullptr) {
+            arm->set_mode(XARM_MODE::POSE);
+            arm->disconnect();
+        }
     }
 
     bool XArmDriver::_get_wait_param(void) 
@@ -409,12 +412,9 @@ namespace xarm_api
 
     int XArmDriver::update_joint_states(bool initialized, int flag)
     {
-        static rclcpp::Time prev_time;
-        static rclcpp::Time curr_time;
-        static float prev_position[7] = {0};
-        static float curr_position[7] = {0};
-        static float curr_velocity[7] = {0};
-        static float curr_effort[7] = {0};
+        float curr_position[7] = {0};
+        float curr_velocity[7] = {0};
+        float curr_effort[7] = {0};
 
         int num = 3;
         if (_firmware_version_is_ge(2, 6, 107)) {
@@ -432,25 +432,24 @@ namespace xarm_api
             ret = arm->get_joint_states(curr_position, curr_velocity, curr_effort, num);
         else
             ret = arm->get_servo_angle(curr_position);
-        curr_time = node_->get_clock()->now();
-
-        joint_state_msg_.header.stamp = curr_time;
-        for(int i = 0; i < joint_state_msg_.position.size(); i++)
-        {
-            joint_state_msg_.position[i] = (double)curr_position[i];
-            if (use_new) {
-                joint_state_msg_.velocity[i] = (double)curr_velocity[i];
-                joint_state_msg_.effort[i] = (double)curr_effort[i];
-            }
-            else {
-                curr_velocity[i] = !initialized ? 0.0 : (curr_position[i] - prev_position[i]) / (curr_time.seconds() - prev_time.seconds());
-                joint_state_msg_.velocity[i] = (double)curr_velocity[i];
+        // The SDK can overwrite output buffers with zeros on a timeout.
+        // Preserve the last successful message, including its timestamp.
+        if (ret != 0) return ret;
+        const auto curr_time = node_->get_clock()->now();
+        if (!use_new) {
+            const rclcpp::Time previous(joint_state_msg_.header.stamp, curr_time.get_clock_type());
+            const double dt = (curr_time - previous).seconds();
+            for (size_t i = 0; i < joint_state_msg_.name.size(); ++i) {
+                curr_velocity[i] = initialized && previous.nanoseconds() != 0 && dt > 0
+                    ? (curr_position[i] - joint_state_msg_.position[i]) / dt : 0.0;
+                curr_effort[i] = joint_state_msg_.effort[i];
             }
         }
+        ret = commit_joint_feedback(joint_state_msg_, ret, curr_position,
+                                    curr_velocity, curr_effort, curr_time);
+        if (ret != 0) return ret;
         pub_joint_state(joint_state_msg_);
-        memcpy(prev_position, curr_position, sizeof(float) * 7);
-        prev_time = curr_time;
-        return ret;
+        return 0;
     }
 
     void XArmDriver::_init_xarm_gripper(void)

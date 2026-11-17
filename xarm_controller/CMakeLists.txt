@@ -111,4 +111,12 @@ ament_export_dependencies(
   rclcpp
 )
 
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+  ament_add_gtest(test_hardware_faults test/test_hardware_faults.cpp)
+  target_include_directories(test_hardware_faults PRIVATE include ${xarm_sdk_INCLUDE_DIRS} ${xarm_api_INCLUDE_DIRS})
+  ament_target_dependencies(test_hardware_faults hardware_interface rclcpp rclcpp_lifecycle pluginlib sensor_msgs xarm_msgs)
+  target_link_libraries(test_hardware_faults uf_robot_hardware ${xarm_api_LIBRARIES})
+endif()
+
 ament_package()

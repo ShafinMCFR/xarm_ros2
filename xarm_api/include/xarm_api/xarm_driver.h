@@ -74,7 +74,7 @@ namespace xarm_api
         bool _firmware_version_is_ge(int major, int minor, int revision);
 
     public:
-        XArmAPI *arm;
+        XArmAPI *arm = nullptr;
         int curr_state;
         int curr_err;
         int curr_cmdnum;

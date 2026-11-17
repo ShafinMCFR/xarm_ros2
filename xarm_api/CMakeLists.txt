@@ -131,4 +131,12 @@ install(DIRECTORY
   DESTINATION share/${PROJECT_NAME}/
 )
 
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+  ament_add_gtest(test_joint_feedback test/test_joint_feedback.cpp)
+  target_include_directories(test_joint_feedback PRIVATE include ${xarm_sdk_INCLUDE_DIRS} ${xarm_api_INCLUDE_DIRS})
+  ament_target_dependencies(test_joint_feedback rclcpp sensor_msgs)
+
+endif()
+
 ament_package()

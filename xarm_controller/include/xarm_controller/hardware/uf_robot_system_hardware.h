@@ -23,8 +23,6 @@
 #include "hardware_interface/types/hardware_interface_return_values.hpp"
 #include "hardware_interface/types/hardware_interface_type_values.hpp"
 #include "hardware_interface/visibility_control.h"
-#include "controller_manager_msgs/srv/list_controllers.hpp"
-#include "controller_manager_msgs/srv/switch_controller.hpp"
 #include "xarm_api/xarm_driver.h"
 
 
@@ -48,15 +46,17 @@ namespace uf_robot_hardware
         hardware_interface::return_type read(const rclcpp::Time & time, const rclcpp::Duration &period) final;
         hardware_interface::return_type write(const rclcpp::Time & time, const rclcpp::Duration &period) final;
 
-        // hardware_interface::return_type prepare_command_mode_switch(const std::vector<std::string>& start_interfaces,
-        //                                                             const std::vector<std::string>& stop_interfaces) final;
-
-        // hardware_interface::return_type perform_command_mode_switch(const std::vector<std::string>& start_interfaces,
-        //                                                             const std::vector<std::string>& stop_interfaces) final;
-
     protected:
         hardware_interface::HardwareInfo info_;
-    
+        // Narrow transport hooks let tests exercise this exact control loop
+        // without SDK connections or motor commands.
+        virtual void _init_ufactory_driver(void);
+        virtual int _read_feedback(sensor_msgs::msg::JointState &sample);
+        virtual int _send_joint_command(float *commands);
+        virtual int _activate_driver();
+        virtual bool _xarm_is_ready_read(void);
+        virtual bool _xarm_is_ready_write(void);
+
     private:
         int read_code_;
         int write_code_;
@@ -73,7 +73,8 @@ namespace uf_robot_hardware
         bool velocity_control_;
         bool initialized_;
         bool read_ready_;
-        bool reactivate_controller_later_;
+        bool fault_latched_ = false;
+        bool have_feedback_ = false;
 
         long int read_cnts_;
         long int read_failed_cnts_;
@@ -91,40 +92,15 @@ namespace uf_robot_hardware
         rclcpp::Time prev_write_time_;
 
         std::shared_ptr<rclcpp::Node> node_;
-        std::shared_ptr<rclcpp::Node> hw_node_;
         xarm_api::XArmDriver xarm_driver_;
         sensor_msgs::msg::JointState *joint_state_msg_;
 
-        std::shared_ptr<controller_manager_msgs::srv::ListControllers::Request> req_list_controller_;
-	    std::shared_ptr<controller_manager_msgs::srv::ListControllers::Response> res_list_controller_;
-        std::shared_ptr<controller_manager_msgs::srv::SwitchController::Request> req_switch_controller_;
-        std::shared_ptr<controller_manager_msgs::srv::SwitchController::Response> res_switch_controller_;
-
-        rclcpp::Client<controller_manager_msgs::srv::ListControllers>::SharedPtr client_list_controller_;
-        rclcpp::Client<controller_manager_msgs::srv::SwitchController>::SharedPtr client_switch_controller_;
-
-        rclcpp::Publisher<std_msgs::msg::Empty>::SharedPtr update_goal_state_pub_;
-        std_msgs::msg::Empty update_goal_state_msg_;
-
         bool _check_cmds_is_change(float *prev, float *cur, double threshold = 0.0001);
-        bool _xarm_is_ready_read(void);
-        bool _xarm_is_ready_write(void);
-
-        bool _need_reset(void);
-
-        void _deactivate_controller(void);
-        void _activate_controller(void);
-
-        void _init_ufactory_driver(void);
-
-        template<typename ServiceT, typename SharedRequest = typename ServiceT::Request::SharedPtr, typename SharedResponse = typename ServiceT::Response::SharedPtr>
-        int _call_request(std::shared_ptr<ServiceT> client, SharedRequest req, SharedResponse& res);
-
+        hardware_interface::return_type _fault(const char *operation, int code);
+        bool _accept_feedback(const sensor_msgs::msg::JointState &sample);
     };
 }
 
 #include "pluginlib/class_list_macros.hpp"
-
 PLUGINLIB_EXPORT_CLASS(uf_robot_hardware::UFRobotSystemHardware, hardware_interface::SystemInterface)
-
-#endif // __UF_ROBOT_SYSTEM_HARDWARE_INTERFACE_H__
+#endif  // __UF_ROBOT_SYSTEM_HARDWARE_INTERFACE_H__
